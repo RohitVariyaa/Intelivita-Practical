@@ -11,7 +11,7 @@ class LeaderboardService
     {
         $query = Activity::query();
 
-        // Filter based on time period
+        // Apply time filter
         match ($filter) {
             'day'   => $query->whereBetween('performed_at', [now()->startOfDay(), now()->endOfDay()]),
             'month' => $query->whereMonth('performed_at', now()->month),
@@ -19,27 +19,30 @@ class LeaderboardService
             default => null,
         };
 
-        // Sum of points grouped by user
-        $activityTotals = $query
-            ->select('user_id')
-            ->selectRaw('SUM(points) as total_points')
-            ->groupBy('user_id')
-            ->get()
-            ->keyBy('user_id');
+        // Get filtered activities
+        $activities = $query->get();
 
-        // Load users and attach computed points and rank
-        $users = User::with('rank')->get()->map(function ($user) use ($activityTotals) {
-            $user->total_points = $activityTotals[$user->id]->total_points ?? 0;
+        $userPoints = [];
+
+        foreach ($activities as $activity) {
+            if (!isset($userPoints[$activity->user_id])) {
+                $userPoints[$activity->user_id] = 0;
+            }
+            $userPoints[$activity->user_id] += $activity->points;
+        }
+
+        // Load users
+        $users = User::with('rank')->get()->map(function ($user) use ($userPoints) {
+            $user->total_points = $userPoints[$user->id] ?? 0;
             $user->rank = $user->rank->rank ?? '-';
             return $user;
         });
 
-        // Sort
+        // Sort users
         $users = $users->sortBy(function ($user) use ($sort) {
             return $sort === 'rank' ? (int) $user->rank : $user->{$sort};
         }, SORT_REGULAR, $direction === 'desc')->values();
 
-        // Highlight searched user
         if ($searchId) {
             $users = $users->sortByDesc(fn($u) => $u->id == $searchId)->values();
         }

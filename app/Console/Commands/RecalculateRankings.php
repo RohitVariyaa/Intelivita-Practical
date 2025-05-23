@@ -27,29 +27,34 @@ class RecalculateRankings extends Command
      */
     public function handle()
     {
-        // Step 1: Group activities by user and sum points
-        $pointData = Activity::select('user_id')
-            ->selectRaw('SUM(points) as total')
-            ->groupBy('user_id')
-            ->orderByDesc('total')
-            ->get();
+        $activities = Activity::all();
 
-        // Step 2: Loop through results and update ranks
+        $userPoints = [];
+
+        foreach ($activities as $activity) {
+            if (!isset($userPoints[$activity->user_id])) {
+                $userPoints[$activity->user_id] = 0;
+            }
+            $userPoints[$activity->user_id] += $activity->points;
+        }
+
+        arsort($userPoints);
+
         $rank = 1;
         $prevPoints = null;
         $actualRank = 1;
 
-        foreach ($pointData as $data) {
-            if ($prevPoints !== null && $prevPoints != $data->total) {
+        foreach ($userPoints as $userId => $total) {
+            if ($prevPoints !== null && $prevPoints != $total) {
                 $actualRank = $rank;
             }
 
             UserRank::updateOrCreate(
-                ['user_id' => $data->user_id],
-                ['total_points' => $data->total, 'rank' => $actualRank]
+                ['user_id' => $userId],
+                ['total_points' => $total, 'rank' => $actualRank]
             );
 
-            $prevPoints = $data->total;
+            $prevPoints = $total;
             $rank++;
         }
 
